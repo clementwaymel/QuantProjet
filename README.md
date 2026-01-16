@@ -12,10 +12,10 @@ Ce projet explore la gestion de données financières (SQL), l'analyse statistiq
   - Allocation Diversifiée (Actions / Obligations / Or).
 
 ## Stack Technique
-- **Langage :** Python 3.11
-- **Analyse :** Pandas, NumPy, Scipy, Statsmodels
-- **Données :** Yfinance, SQLite
-- **Visualisation :** Matplotlib, Seaborn
+- Langage : Python 3.11
+- Analyse : Pandas, NumPy, Scipy, Statsmodels
+- Données : Yfinance, SQLite
+- Visualisation : Matplotlib, Seaborn
 
 ## Prochaines Étapes (Roadmap)
 - Implémentation d'un Backtester "Event-Driven" (Simulation réaliste).
