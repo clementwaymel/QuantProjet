@@ -1,0 +1,17 @@
+# Fichiers Python compilés (inutiles)
+__pycache__/
+*.py[cod]
+
+# Base de données (Trop lourd pour GitHub, on ne partage pas les données brutes)
+*.db
+*.sqlite3
+data/quant_data.db
+
+# Environnements virtuels
+.env
+venv/
+env/
+.vscode/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
