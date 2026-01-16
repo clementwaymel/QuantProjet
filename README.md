@@ -1,4 +1,4 @@
-# 📈 QuantEngine : Algorithmic Trading Infrastructure
+# QuantEngine : Algorithmic Trading Infrastructure
 
 ## Description
 Projet d'ingénierie financière visant à construire un moteur de backtesting et d'analyse quantitative modulaire en Python.
