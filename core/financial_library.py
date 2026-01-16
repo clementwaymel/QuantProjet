@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as stats
-from database_manager import QuantDatabase
+from core.database_manager import QuantDatabase
 
 class FinancialAsset:
     """

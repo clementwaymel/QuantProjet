@@ -26,7 +26,7 @@ if isinstance(data.columns, pd.MultiIndex):
         # Si 'Close' n'est pas un niveau, on suppose que c'est déjà bon ou on nettoie autrement
         pass
 
-# Calcul des rendements quotidiens (Log-returns préférables pour l'agrégation, mais restons simples)
+# Calcul des rendements quotidiens 
 returns = data.pct_change().dropna()
 
 # ==========================================
