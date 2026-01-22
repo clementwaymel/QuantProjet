@@ -84,19 +84,27 @@ Nous sommes passés d'un code "Vectorisé" (calcul sur colonnes) à une **Boucle
 * **Données :** SQLite3, Yfinance.
 * **Outils :** Git/GitHub, VS Code.
 
-
-
 ## Prochaines Étapes (Roadmap)
+### Infrastructure & Qualité
 
-- [x] Mise en place de l'environnement et Git.
-- [x] Création de la librairie financière (Asset / Portfolio).
-- [x] Implémentation de la Base de Données SQL.
-- [x] Module de Statistique Avancée (Jarque-Bera, Cointégration).
-- [x] Cœur du système événementiel (DataHandler + Strategy).
-- [ ] Finalisation du Portefeuille et de l'Exécution.
-- [ ] Implémentation de la stratégie Pairs Trading (Z-Score) dans le moteur événementiel.
-- [ ] Ajout d'un module de Machine Learning pour la prédiction de tendance.
+[x] Mise en place de l'environnement et Git.
 
+[x] Refactoring complet : Architecture modulaire (Core vs Strategies).
 
+[x] Mise en place de tests automatisés (Pytest).
+
+[x] Centralisation des données dans data/.
+
+### Moteur Mathématique & Financier
+
+[x] Cœur du système événementiel (DataHandler -> Strategy -> Portfolio).
+
+[ ] Priorité : Enrichir core/statistics.py (Tests de cointégration, Stationnarité).
+
+[ ] Priorité : Finaliser la logique de gestion de position dans Portfolio.
+
+[ ] Implémentation complète du Pairs Trading avec le nouveau moteur.
+
+[ ] Ajout d'un module de Machine Learning pour la prédiction de tendance.
 
 Ce projet est développé dans une démarche d'apprentissage continu, en appliquant la rigueur des Mathématiques Appliquées aux problématiques de la Finance Quantitative.
