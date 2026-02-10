@@ -2,118 +2,125 @@ import numpy as np
 from collections import deque
 from core.event import SignalEvent
 from core.strategy import Strategy
-from core.statistics import RollingOLS, calculate_half_life
+from core.kalman import KalmanRegression
+from core.fractals import calculate_hurst_exponent
+from core.statistics import calculate_half_life # <--- NOUVEL IMPORT
 
 class PairsTradingStrategy(Strategy):
     """
-    Version 2.0 : Utilise une Régression Dynamique (Rolling OLS).
-    Le Hedge Ratio s'adapte au marché.
+    Version 5.0 (Blindée) : KALMAN + HURST + HALF-LIFE + STOP LOSS.
     """
-    def __init__(self, bars, events_queue, window_size=30, z_entry=2.0, z_exit=0.5):
+    def __init__(self, bars, events_queue, z_entry=2.0, z_exit=0.0):
         self.bars = bars
         self.events_queue = events_queue
         
-        self.window_size = window_size
         self.z_entry = z_entry
-        self.z_exit = z_exit
+        self.z_exit = z_exit # On sort quand Z revient à 0
         
-        self.ticker_y = "KO" # Variable dépendante
-        self.ticker_x = "PEP" # Variable explicative
+        self.ticker_y = "KO"
+        self.ticker_x = "PEP"
         
-        # --- NOYAU STATISTIQUE ---
-        # Objet qui va apprendre la relation KO/PEP jour après jour
-        self.ols_model = RollingOLS(window_size=window_size)
+        # Moteur Kalman
+        self.kalman = KalmanRegression(delta=1e-4, R=1e-3)
         
-        # Pour le Z-Score, on garde l'historique des Résidus (Spreads)
-        self.residuals_history = deque(maxlen=window_size)
+        # Historique pour Z-Score, Hurst et Half-Life
+        self.spread_history = deque(maxlen=100) 
         
+        # Gestion de position
         self.state = 'NEUTRAL'
+        self.entry_price_spread = 0.0 # Pour calculer le P&L latent
 
     def calculate_signals(self, event):
         if event.type == 'MARKET':
-            # 1. Récupération des prix
             price_y = self.bars.get_latest_bar(self.ticker_y)
             price_x = self.bars.get_latest_bar(self.ticker_x)
             
-            if price_y is None or price_x is None:
-                return
+            if price_y is None or price_x is None: return
 
             y_val = price_y['close']
             x_val = price_x['close']
 
-            # 2. Mise à jour du modèle mathématique
-            # On nourrit le modèle avec les nouvelles données
-            self.ols_model.update(x_val, y_val)
+            # 1. Mise à jour Kalman
+            self.kalman.update(x_val, y_val)
+            current_beta = self.kalman.get_beta()
             
-            if not self.ols_model.is_ready:
-                return # On attend d'avoir 30 jours de données
+            # 2. Calcul Spread
+            current_spread = y_val - (current_beta * x_val)
+            self.spread_history.append(current_spread)
+            
+            if len(self.spread_history) < 30: return
 
-            # 3. Calcul du Spread DYNAMIQUE (Résidu)
-            # Contrairement à avant où Beta était fixe, ici Beta change tous les jours !
-            current_spread = self.ols_model.get_residual(x_val, y_val)
-            
-            # On stocke ce spread
-            self.residuals_history.append(current_spread)
-            
-            # 4. Calcul du Z-Score sur les résidus
-            spreads = np.array(self.residuals_history)
-            mean_spread = np.mean(spreads)
-            std_spread = np.std(spreads)
+            # 3. Calcul Z-Score
+            recent_spreads = list(self.spread_history)[-30:] # Fenêtre courte pour Z
+            mean_spread = np.mean(recent_spreads)
+            std_spread = np.std(recent_spreads)
             
             if std_spread == 0: return
-            
             z_score = (current_spread - mean_spread) / std_spread
             
-            # Affichage périodique du Beta (Pour voir s'il bouge)
-            # beta, alpha = self.ols_model.get_params()
-            # print(f"Beta actuel: {beta:.4f} | Z-Score: {z_score:.2f}")
-
-            # 5. LOGIQUE DE TRADING (Identique à la V1)
-            # La logique ne change pas, c'est la QUALITÉ du signal qui s'améliore
-            # --- NOUVEAU : CALCUL DE LA VITESSE DE RETOUR ---
-            # On regarde l'historique récent des spreads
-            current_half_life = calculate_half_life(self.residuals_history)
+            # 4. FILTRES AVANCÉS (Hurst + Half-Life)
+            is_valid_trade = True
             
-            # FILTRE DE QUALITÉ :
-            # Si le Half-Life est > 15 jours, l'élastique est trop mou. On ne fait rien.
-            is_fast_reversion = False
-            if current_half_life is not None and current_half_life < 15:
-                is_fast_reversion = True
+            # A. Filtre Fractal (Hurst) sur fenêtre longue
+            if len(self.spread_history) > 60:
+                hurst = calculate_hurst_exponent(self.spread_history)
+                if hurst > 0.5: # Si > 0.5, c'est du Trending (Divergence)
+                    is_valid_trade = False
             
-            # On affiche pour le debug
-            # if current_half_life: print(f"Half-Life: {current_half_life:.1f} jours")
+            # B. Filtre Temporel (Half-Life) sur fenêtre récente
+            hl = calculate_half_life(recent_spreads)
+            # Si le HL est > 20 jours, c'est trop lent, on risque de rester coincé
+            if hl is not None and hl > 20: 
+                is_valid_trade = False
 
-            # 5. LOGIQUE DE TRADING AVEC FILTRE
-            if self.state == 'NEUTRAL':
-                # On ajoute la condition "and is_fast_reversion"
-                if z_score < -self.z_entry and is_fast_reversion:
-                    print(f"[Strategy] Z-Score {z_score:.2f} | HL {current_half_life:.1f}j (Rapide). BUY SPREAD")
+            # 5. GESTION DES RISQUES (STOP LOSS)
+            # Si on est en position, on vérifie si ça tourne mal
+            if self.state != 'NEUTRAL':
+                # Estimation grossière du P&L en Z-Score
+                # Si on est LONG et que Z continue de descendre violemment (< -4) -> STOP
+                # Si on est SHORT et que Z continue de monter violemment (> +4) -> STOP
+                stop_loss_z = 4.0 
+                
+                if self.state == 'LONG_SPREAD' and z_score < -stop_loss_z:
+                    print(f"[RISK] STOP LOSS ACTIVÉ (Z={z_score:.2f}). EXIT LONG.")
+                    self._exit_positions()
+                    return
+                
+                if self.state == 'SHORT_SPREAD' and z_score > stop_loss_z:
+                    print(f"[RISK] STOP LOSS ACTIVÉ (Z={z_score:.2f}). EXIT SHORT.")
+                    self._exit_positions()
+                    return
+
+            # 6. LOGIQUE D'ENTRÉE
+            if self.state == 'NEUTRAL' and is_valid_trade:
+                if z_score < -self.z_entry:
+                    print(f"[Signal] Buy Spread (Z={z_score:.2f} | HL={hl:.1f}j).")
                     self._send_signal(self.ticker_y, 'LONG')
                     self._send_signal(self.ticker_x, 'SHORT')
                     self.state = 'LONG_SPREAD'
+                    self.entry_price_spread = current_spread
                     
-                elif z_score > self.z_entry and is_fast_reversion:
-                    print(f"[Strategy] Z-Score {z_score:.2f} | HL {current_half_life:.1f}j (Rapide). SELL SPREAD")
+                elif z_score > self.z_entry:
+                    print(f"[Signal] Sell Spread (Z={z_score:.2f} | HL={hl:.1f}j).")
                     self._send_signal(self.ticker_y, 'SHORT')
                     self._send_signal(self.ticker_x, 'LONG')
                     self.state = 'SHORT_SPREAD'
+                    self.entry_price_spread = current_spread
 
-            elif self.state == 'LONG_SPREAD':
-                if z_score > -self.z_exit:
-                    self._send_signal(self.ticker_y, 'EXIT')
-                    self._send_signal(self.ticker_x, 'EXIT')
-                    self.state = 'NEUTRAL'
+            # 7. LOGIQUE DE SORTIE (Take Profit)
+            elif self.state == 'LONG_SPREAD' and z_score > -self.z_exit:
+                self._exit_positions()
 
-            elif self.state == 'SHORT_SPREAD':
-                if z_score < self.z_exit:
-                    self._send_signal(self.ticker_y, 'EXIT')
-                    self._send_signal(self.ticker_x, 'EXIT')
-                    self.state = 'NEUTRAL'
-        
+            elif self.state == 'SHORT_SPREAD' and z_score < self.z_exit:
+                self._exit_positions()
+
+    def _exit_positions(self):
+        self._send_signal(self.ticker_y, 'EXIT')
+        self._send_signal(self.ticker_x, 'EXIT')
+        self.state = 'NEUTRAL'
 
     def _send_signal(self, ticker, direction):
         sig = SignalEvent(ticker, None, direction, strength=1.0)
         self.events_queue.put(sig)
 
-    
 

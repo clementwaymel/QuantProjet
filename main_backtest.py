@@ -1,5 +1,5 @@
 from queue import Queue
-import matplotlib.pyplot as plt # Import pour le graphique
+import matplotlib.pyplot as plt
 from core.data_handler import SQLDataHandler
 from core.portfolio import Portfolio
 from core.execution import SimulatedExecutionHandler
@@ -12,7 +12,7 @@ symbols = ['KO', 'PEP']
 
 # Initialisation
 data = SQLDataHandler(events, symbols)
-strategy = PairsTradingStrategy(data, events, window_size=30)
+strategy = PairsTradingStrategy(data, events)
 portfolio = Portfolio(data, events, initial_capital=100000)
 broker = SimulatedExecutionHandler(events)
 
