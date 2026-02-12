@@ -65,24 +65,54 @@ Avant de trader un actif, nous vérifions ses propriétés statistiques (Moments
 ## Phase 3 : Architecture Événementielle (En cours)
 *Objectif : Simulation professionnelle réaliste (Event-Driven Backtester).*
 
-Nous sommes passés d'un code "Vectorisé" (calcul sur colonnes) à une **Boucle Événementielle** (`while True`). Cela simule le temps réel et empêche le "Look-ahead Bias" (tricher en connaissant le futur).
+Nous sommes passés d'un code "Vectorisé" (calcul sur colonnes) à une **Boucle Événementielle** (`while True`). Cela simule le temps réel et empêche de tricher en connaissant le futur.
 
 ### Le Cycle de Vie d'un "Tick" :
 1.  **DataHandler :** Lit la base SQL et envoie un événement `MARKET` (Nouveau prix).
 2.  **Queue (File d'attente) :** Transporte les messages entre les modules.
 3.  **Strategy (Cerveau) :** Reçoit le prix, analyse, et envoie un événement `SIGNAL`.
-4.  **Portfolio (Risque) :** Reçoit le signal, vérifie le cash, applique le Kelly Criterion, et génère un `ORDER`. *(En cours de dév)*
-5.  **Execution (Broker) :** Simule l'exécution au marché et renvoie un `FILL`. *(En cours de dév)*
+4.  **Portfolio (Risque) :** Reçoit le signal, vérifie le cash, applique le Kelly Criterion, et génère un `ORDER`.
+5.  **Execution (Broker) :** Simule l'exécution au marché et renvoie un `FILL`. 
+
+
+
+## Phase 4 : Modélisation Avancée & Physique des Marchés
+*Objectif : Dépasser l'analyse technique simple grâce aux mathématiques appliquées.*
+J'ai développé une stratégie de Pairs Trading (Coca vs Pepsi) basée sur la cointégration, enrichie par des modèles dynamiques :
+1. **Filtrage de Kalman (Estimation d'État)**
+Remplacement des moyennes mobiles (lentes) par un Filtre de Kalman 1D.
+Intérêt : Estimation instantanée du "Hedge Ratio" (\beta) entre deux actifs.
+Maths : Correction récursive de l'erreur de prédiction basée sur la covariance du bruit.
+2. **Analyse Fractale (Exposant de Hurst)**
+Utilisation de la théorie du Chaos pour qualifier la série temporelle.
+Calcul : Estimation de la mémoire longue de la série (H).
+Application : Si H > 0.5 (Régime Persistant/Tendance), le robot s'interdit de trader la stratégie de retour à la moyenne. C'est un "disjoncteur" mathématique.
+3. **Vitesse de Retour (Ornstein-Uhlenbeck)**
+Modélisation du spread comme un processus stochastique OU : $dx_t = \theta (\mu - x_t)dt + \sigma dW_t$.
+Application : Calcul de la Demi-Vie (Half-Life). Si le retour à l'équilibre est estimé trop lent (> 15 jours), le trade est rejeté pour optimiser l'efficacité du capital.
+Résultat actuel : Une stratégie "Market Neutral" avec un ROI stable et une faible volatilité, capable de traverser le krach COVID sans effondrement.
+
+
+
+## Phase 5 : Machine Learning (En Cours)
+*Objectif : Utiliser l'IA pour filtrer les signaux et détecter des non-linearités.*
+* **Feature Engineering** : Transformation des prix bruts (non-stationnaires) en indicateurs normalisés (RSI, Volatilité, Z-Scores).
+* **Modélisation :** Entraînement de modèles Random Forest pour la prédiction directionnelle.
+* **Meta-Labeling :** Utilisation de l'IA non pas pour prédire le prix, mais pour prédire la probabilité de succès d'un signal généré par le modèle Kalman.
+
 
 
 
 ## Stack Technique
 
 * **Langage :** Python 3.11+
-* **Noyau Numérique :** NumPy, Pandas (Vectorisation, Algèbre Linéaire).
+* **Noyau Numérique :** NumPy, Pandas, Scipy (Vectorisation, Algèbre Linéaire).
 * **Statistiques :** SciPy, Statsmodels (Tests ADF, Cointégration, Régressions).
+* **Machine Learning :** Scikit-Learn.
 * **Données :** SQLite3, Yfinance.
 * **Outils :** Git/GitHub, VS Code.
+
+
 
 ## Prochaines Étapes (Roadmap)
 ### Infrastructure & Qualité
@@ -99,12 +129,16 @@ Nous sommes passés d'un code "Vectorisé" (calcul sur colonnes) à une **Boucle
 
 [x] Cœur du système événementiel (DataHandler -> Strategy -> Portfolio).
 
-[ ] Priorité : Enrichir core/statistics.py (Tests de cointégration, Stationnarité).
+[x] Tests Unitaires (Coverage critique).
 
-[ ] Priorité : Finaliser la logique de gestion de position dans Portfolio.
+[x] Stratégie Pairs Trading (Kalman + Hurst + OU).
 
-[ ] Implémentation complète du Pairs Trading avec le nouveau moteur.
+[x] Pipeline de Feature Engineering pour le ML.
 
-[ ] Ajout d'un module de Machine Learning pour la prédiction de tendance.
+[ ] Implémentation du Meta-Labeling (Filtrage des signaux par IA).
+
+[ ] Optimisation des hyperparamètres (Walk-Forward Analysis).
+
+[ ] Déploiement Cloud / Paper Trading.
 
 Ce projet est développé dans une démarche d'apprentissage continu, en appliquant la rigueur des Mathématiques Appliquées aux problématiques de la Finance Quantitative.
