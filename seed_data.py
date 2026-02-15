@@ -1,28 +1,25 @@
 import sys
 import os
-
-# Astuce d'ingénieur : On ajoute le dossier courant au chemin Python
-# pour éviter les erreurs "ModuleNotFoundError: No module named 'core'"
 sys.path.append(os.getcwd())
-
 from core.financial_library import FinancialAsset
 
-print("--- INITIALISATION DES DONNÉES (DATA SEEDING) ---")
+print("--- MISE À JOUR BASE DE DONNÉES (S&P 100) ---")
 
-# Liste des actifs nécessaires pour le backtest
-tickers = ['KO', 'PEP', 'AAPL', 'TLT', 'GLD', 'MSFT', 'AMZN', 'GOOGL'] 
+# Liste unique de tous les actifs de ta nouvelle stratégie
+tickers = [
+    'MA', 'WMT', 'V', 'TXN', 'UPS', 'QCOM', 'ABT', 'BKNG', 'GE', 'MS', 
+    'CAT', 'UNH', 'ABBV', 'AMGN', 'TSLA', 'UNP', 'PEP', 'TJX', 'GS', 
+    'SPGI', 'HD', 'PG', 'LOW', 'JNJ', 'DE', 'TMO', 'GOOGL', 'AMAT', 
+    'CVX', 'EOG', 'DHR'
+]
 
 for ticker in tickers:
-    print(f"\n[Seed] Traitement de {ticker}...")
+    print(f"\n[Seed] Vérification/Téléchargement de {ticker}...")
     try:
-        # On télécharge du 01/01/2018 au 01/01/2024 pour avoir un bon historique
-        asset = FinancialAsset(ticker, "2018-01-01", "2024-01-01")
-        
-        # force_update=True oblige le système à écraser/créer la donnée SQL
-        asset.download_data(force_update=True)
-        print(f"✅ {ticker} sauvegardé avec succès.")
-        
+        # On prend large (2015-2024) pour que le scanner et le backtest soient à l'aise
+        asset = FinancialAsset(ticker, "2015-01-01", "2024-01-01")
+        asset.download_data(force_update=False) # False = Si on l'a déjà, on ne retélécharge pas (gain de temps)
     except Exception as e:
         print(f"❌ Erreur sur {ticker} : {e}")
 
-print("\n--- BASE DE DONNÉES PRÊTE ---")
+print("\n--- BASE À JOUR. PRÊT POUR LE BACKTEST ---")

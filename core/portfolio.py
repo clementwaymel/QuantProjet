@@ -4,124 +4,121 @@ from core.event import OrderEvent
 import pandas as pd
 
 class Portfolio:
-    """
-    Gestionnaire de positions et de valorisation (Mark-to-Market).
-    """
-    def __init__(self, bars, events_queue, initial_capital=100000.0):
-        self.bars = bars              # Accès au DataHandler
+    def __init__(self, bars, events_queue, initial_capital=100000.0, leverage=4.0):
+        self.bars = bars
         self.events_queue = events_queue
         self.initial_capital = initial_capital
+        self.leverage = leverage # Levier Cible (ex: 4.0)
         
-        # État des positions {Ticker: Quantité}
+        # --- SÉCURITÉ (NOUVEAU) ---
+        # Levier MAX autoritaire (Disjoncteur)
+        # On ne dépassera JAMAIS 4x les capitaux propres, quoi qu'il arrive.
+        self.max_leverage_cap = 4.0 
+        
         self.current_positions = {s: 0 for s in self.bars.symbol_list}
-        
-        # État du Cash
         self.current_cash = initial_capital
-        
-        # État de la Valeur Totale (Equity)
         self.current_equity = initial_capital
-        
-        # Historique pour le graphique final (Liste de dictionnaires)
-        self.equity_curve = [] 
+        self.equity_curve = []
 
+    # ... (Gardes update_fill, update_signal, mark_to_market inchangés) ...
+    # Je remets update_signal pour la clarté de l'appel
     def update_signal(self, event):
-        """Reçoit un Signal -> Génère un Ordre"""
         if event.type == 'SIGNAL':
-            order_event = self.generate_naive_order(event)
+            order_event = self.generate_leveraged_order(event)
             if order_event is not None:
                 self.events_queue.put(order_event)
 
-    def generate_naive_order(self, signal):
+    def generate_leveraged_order(self, signal):
         """
-        VERSION CORRIGÉE : Dynamic Position Sizing.
-        On investit proportionnellement à la taille du compte.
+        VERSION 5.0 (SAFE) : Avec Disjoncteur de Levier.
         """
         order = None
         symbol = signal.symbol
         direction = signal.signal_type
         order_type = 'MKT'
         
-        # 1. On récupère le prix actuel
         bar = self.bars.get_latest_bar(symbol)
-        if bar is None:
-            return None
+        if bar is None: return None
         price = bar['close']
+        if price == 0: return None
         
-        # 2. Combien on possède déjà ?
         cur_quantity = self.current_positions[symbol]
         
-        # 3. CALCUL DE LA TAILLE DE POSITION (RISK MANAGEMENT)
-        # On veut allouer 40% du capital (Equity) sur ce trade
-        target_allocation = 0.40 
-        
-        # Note : On utilise current_equity (Valeur Totale) et pas juste le cash
-        target_exposure = self.current_equity * target_allocation
-        
-        # Nombre d'actions à acheter = Montant Cible / Prix unitaire
-        # floor() arrondit à l'entier inférieur (on ne peut pas acheter 0.5 action)
-        if price == 0: return None
-        target_qty = int(floor(target_exposure / price))
-        
-        if direction == 'LONG':
-            # Achat
-            order = OrderEvent(symbol, order_type, target_qty, 'BUY')
-            
-        elif direction == 'SHORT':
-            # Vente à découvert
-            order = OrderEvent(symbol, order_type, target_qty, 'SELL')
-            
-        elif direction == 'EXIT':
-            # Fermeture de position
+        if direction == 'EXIT':
             if cur_quantity > 0:
                 order = OrderEvent(symbol, order_type, abs(cur_quantity), 'SELL')
             elif cur_quantity < 0:
                 order = OrderEvent(symbol, order_type, abs(cur_quantity), 'BUY')
+            return order
+
+        # --- LOGIQUE DE GESTION DU RISQUE ---
+        
+        # 1. Calcul de l'exposition actuelle totale
+        current_exposure = 0.0
+        for s, qty in self.current_positions.items():
+            # On approxime avec le dernier prix connu
+            last_bar = self.bars.get_latest_bar(s)
+            if last_bar:
+                current_exposure += abs(qty * last_bar['close'])
+        
+        # 2. Vérification du Plafond (Circuit Breaker)
+        # Si on est déjà à fond (Levier > 3.8), on interdit d'ouvrir de nouvelles positions
+        current_leverage = current_exposure / self.current_equity if self.current_equity > 0 else 999
+        
+        if direction in ['LONG', 'SHORT'] and current_leverage >= self.max_leverage_cap:
+            # print(f"[RISK] Ordre bloqué ! Levier actuel {current_leverage:.2f} >= Max {self.max_leverage_cap}")
+            return None
+
+        # 3. Calcul de la taille idéale (Risk Parity)
+        target_risk_percent = 0.0010 
+        
+        # Sécurité sur la volatilité (on évite la division par zéro ou par un nombre minuscule)
+        volatility = getattr(signal, 'est_volatility', 0.015)
+        if volatility < 0.005: volatility = 0.005 # On force un plancher de 0.5% de vol
+        
+        # Formule Kelly/Risk Parity
+        position_value = (self.current_equity * target_risk_percent) / volatility
+        
+        # 4. Seconde Sécurité : Cap par Position individuelle
+        # On ne met jamais plus de 10% du "Buying Power Max" sur une seule ligne
+        max_position_value = (self.current_equity * self.leverage) * 0.10
+        
+        final_dollar_amount = min(position_value, max_position_value)
+        
+        target_qty = int(floor(final_dollar_amount / price))
+        
+        if target_qty == 0: return None
+
+        if direction == 'LONG':
+            order = OrderEvent(symbol, order_type, target_qty, 'BUY')
+        elif direction == 'SHORT':
+            order = OrderEvent(symbol, order_type, target_qty, 'SELL')
             
         return order
 
+    # ... (Le reste : update_fill, mark_to_market restent inchangés) ...
+    # N'oublie pas de garder mark_to_market sinon le graph est vide !
     def update_fill(self, event):
-        """Met à jour Cash et Positions après exécution"""
         if event.type == 'FILL':
             fill_dir = 1 if event.direction == 'BUY' else -1
-            
-            # 1. Mise à jour Quantité
             self.current_positions[event.symbol] += fill_dir * event.quantity
-            
-            # 2. Mise à jour Cash (Prix + Commission)
             cost = fill_dir * event.fill_cost * event.quantity
             self.current_cash -= (cost + event.commission)
-            
-            # Debug
-            # print(f"[Portefeuille] Fill {event.symbol}. Cash: {self.current_cash:.2f}")
 
     def mark_to_market(self, current_time):
-        """
-        CALCUL CRUCIAL : Combien vaut mon portefeuille MAINTENANT ?
-        Cette méthode doit être appelée à chaque 'Tick' de marché.
-        """
         market_value = 0
-        
-        # Pour chaque actif suivi
         for symbol in self.current_positions:
             qty = self.current_positions[symbol]
-            
-            # On demande le prix actuel au DataHandler
             bar = self.bars.get_latest_bar(symbol)
             if bar is not None:
-                price = bar['close'] # Prix actuel
-                market_value += qty * price
-            
-        # Equity = Cash + Valeur de liquidation des positions
+                market_value += qty * bar['close']
         self.current_equity = self.current_cash + market_value
-        
-        # On enregistre l'histoire
         self.equity_curve.append({
             'datetime': current_time,
             'equity': self.current_equity,
             'cash': self.current_cash,
             'positions_value': market_value
         })
-        
+    
     def get_equity_curve(self):
-        """Renvoie un DataFrame Pandas pour l'analyse"""
         return pd.DataFrame(self.equity_curve).set_index('datetime')

@@ -11,16 +11,20 @@ class MarketEvent(Event):
     def __init__(self):
         self.type = 'MARKET'
 
+
+
 class SignalEvent(Event):
     """
     Se déclenche quand la Stratégie veut faire quelque chose.
+    Mise à jour Semaine 19 : Ajout de la volatilité estimée.
     """
-    def __init__(self, symbol, datetime, signal_type, strength=1.0):
+    def __init__(self, symbol, datetime, signal_type, strength=1.0, est_volatility=0.01):
         self.type = 'SIGNAL'
         self.symbol = symbol
         self.datetime = datetime
-        self.signal_type = signal_type # 'LONG' ou 'SHORT'
-        self.strength = strength # Force du signal (pour Kelly)
+        self.signal_type = signal_type # 'LONG', 'SHORT', 'EXIT'
+        self.strength = strength 
+        self.est_volatility = est_volatility # <--- NOUVEAU (Écart-type du spread ou prix)
 
 class OrderEvent(Event):
     """

@@ -2,9 +2,9 @@ import numpy as np
 from collections import deque
 from core.event import SignalEvent
 from core.strategy import Strategy
-from core.kalman import KalmanRegression
-from core.fractals import calculate_hurst_exponent
-from core.statistics import calculate_half_life # <--- NOUVEL IMPORT
+from quant_maths.kalman import KalmanRegression
+from quant_maths.fractals import calculate_hurst_exponent
+from quant_maths.statistics import calculate_half_life # <--- NOUVEL IMPORT
 
 class PairsTradingStrategy(Strategy):
     """
@@ -21,7 +21,7 @@ class PairsTradingStrategy(Strategy):
         self.ticker_x = "PEP"
         
         # Moteur Kalman
-        self.kalman = KalmanRegression(delta=1e-4, R=1e-3)
+        self.kalman = KalmanRegression(delta=1e-7, R=1e-3)
         
         # Historique pour Z-Score, Hurst et Half-Life
         self.spread_history = deque(maxlen=100) 
@@ -91,22 +91,25 @@ class PairsTradingStrategy(Strategy):
                     self._exit_positions()
                     return
 
-            # 6. LOGIQUE D'ENTRÉE
+            # 6. LOGIQUE D'ENTRÉE (Corrigée avec intervalle de confiance)
+            z_max_entry = 3.5 # Disjoncteur stochastique (Anti-Fat Tails)
+            
             if self.state == 'NEUTRAL' and is_valid_trade:
-                if z_score < -self.z_entry:
+                # Troncature de la queue de distribution gauche
+                if -z_max_entry < z_score < -self.z_entry:
                     print(f"[Signal] Buy Spread (Z={z_score:.2f} | HL={hl:.1f}j).")
                     self._send_signal(self.ticker_y, 'LONG')
                     self._send_signal(self.ticker_x, 'SHORT')
                     self.state = 'LONG_SPREAD'
                     self.entry_price_spread = current_spread
                     
-                elif z_score > self.z_entry:
+                # Troncature de la queue de distribution droite
+                elif self.z_entry < z_score < z_max_entry:
                     print(f"[Signal] Sell Spread (Z={z_score:.2f} | HL={hl:.1f}j).")
                     self._send_signal(self.ticker_y, 'SHORT')
                     self._send_signal(self.ticker_x, 'LONG')
                     self.state = 'SHORT_SPREAD'
                     self.entry_price_spread = current_spread
-
             # 7. LOGIQUE DE SORTIE (Take Profit)
             elif self.state == 'LONG_SPREAD' and z_score > -self.z_exit:
                 self._exit_positions()

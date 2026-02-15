@@ -3,27 +3,41 @@ import matplotlib.pyplot as plt
 from core.data_handler import SQLDataHandler
 from core.portfolio import Portfolio
 from core.execution import SimulatedExecutionHandler
-from strategies.pairs_strategy import PairsTradingStrategy
+from strategies.multi_pairs_strategy import MultiPairsTradingStrategy
 
-print("--- BACKTEST : PAIRS TRADING (COCA vs PEPSI) ---")
+print("--- BACKTEST MULTI-PAIRS (ARBITRAGE STATISTIQUE) ---")
 
 events = Queue()
-symbols = ['KO', 'PEP']
+
+# Le "Golden Portfolio" de paires cointégrées
+pairs_to_trade = [
+    ('GOOGL', 'MSFT'),
+    ('V', 'MA'),
+    ('LOW', 'HD'),
+    ('KO', 'PEP'),
+    ('CAT', 'DE')
+]
+
+# Extraction d'une liste unique de symboles pour le DataHandler
+symbols = list(set([sym for pair in pairs_to_trade for sym in pair]))
 
 # Initialisation
-data = SQLDataHandler(events, symbols)
-strategy = PairsTradingStrategy(data, events)
-portfolio = Portfolio(data, events, initial_capital=100000)
-broker = SimulatedExecutionHandler(events)
+print(f"Chargement de {len(symbols)} actifs pour {len(pairs_to_trade)} paires...")
+data = SQLDataHandler(events, symbols, start_date="2018-01-01")
 
-print("Démarrage de la simulation...")
+# On utilise la stratégie Multi-Pairs (avec des seuils Z-Score modérés)
+strategy = MultiPairsTradingStrategy(data, events, pairs_to_trade, z_entry=2.5, z_exit=0.0)
+
+# Portefeuille avec 100 000$ (Le levier est géré en interne)
+portfolio = Portfolio(data, events, initial_capital=100000)
+broker = SimulatedExecutionHandler(events, slippage_std=0.0001)
+
+print("Démarrage de la simulation globale...")
 ticks = 0
 
 while data.continue_backtest:
-    # A. Avancer le temps
     data.update_bars()
     
-    # B. Traiter les événements
     while not events.empty():
         event = events.get()
         
@@ -31,9 +45,8 @@ while data.continue_backtest:
             strategy.calculate_signals(event)
             ticks += 1
             
-            # --- NOUVEAU : Calcul Mark-to-Market à chaque tick ---
-            # On récupère la date actuelle (via un actif, ex: KO)
-            latest = data.get_latest_bar('KO')
+            # Mark-to-Market basé sur la date du premier symbole disponible
+            latest = data.get_latest_bar(symbols[0])
             if latest:
                 portfolio.mark_to_market(latest['date'])
             
@@ -47,10 +60,7 @@ while data.continue_backtest:
 # --- ANALYSE DES RÉSULTATS ---
 print("Simulation terminée.")
 
-# On récupère l'historique sous forme de DataFrame
 df_result = portfolio.get_equity_curve()
-
-# Calcul de la performance finale
 final_equity = df_result['equity'].iloc[-1]
 roi = (final_equity - 100000) / 100000 * 100
 
@@ -60,15 +70,13 @@ print(f"Rendement (ROI) : {roi:.2f} %")
 # --- GRAPHIQUE FINAL ---
 plt.figure(figsize=(12, 8))
 
-# Courbe 1 : Valeur Totale (Equity)
 plt.subplot(2, 1, 1)
 plt.plot(df_result.index, df_result['equity'], color='blue', label='Valeur Totale')
 plt.axhline(100000, color='black', linestyle='--')
-plt.title(f"Performance Stratégie Pairs Trading (ROI: {roi:.2f}%)")
+plt.title(f"Performance Multi-Pairs Trading (ROI: {roi:.2f}%)")
 plt.legend()
 plt.grid(True)
 
-# Courbe 2 : Décomposition (Cash vs Investi)
 plt.subplot(2, 1, 2)
 plt.plot(df_result.index, df_result['cash'], color='green', label='Cash Disponible')
 plt.plot(df_result.index, df_result['positions_value'], color='orange', label='Valeur Investie (Spread)')
